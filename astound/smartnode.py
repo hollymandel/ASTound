@@ -4,10 +4,14 @@ import logging
 import astor
 import jedi
 
+FORBIDDEN_TYPES = (ast.ImportFrom, ast.Import, ast.ListComp, ast.For, ast.If, ast.Return)
+
 jedi.settings.fast_parser = (
     False  # otherwise jedi will only maintain one script object!
 )
 
+def pretty_type(type):
+    return str(type).split("ast.")[-1].split("'>")[0]
 
 class ForbiddenNodeType(BaseException):
     pass
@@ -17,17 +21,10 @@ class Source:
     """mutable wrapper around source text"""
 
     def __init__(self, name, path):
-        self._name = name
+        self.name = name
         with open(path, "r") as file:
-            self._text = file.read()
-        self.jedi = jedi.Script(self._text)
-
-    def text(self):
-        return self._text
-
-    def name(self):
-        return self._name
-
+            self.text = file.read()
+        self.jedi = jedi.Script(self.text)
 
 class Node:
     """thin wrapper around AST for formatting and printing. Lots of special casing to
@@ -41,71 +38,68 @@ class Node:
         if isinstance(ast_node, ast.Expr):
             ast_node = ast_node.value
 
-        self._ast_node = ast_node
-        self._text = ""
+        self.ast_node = ast_node
+        self.text = ""
 
     def __repr__(self):
-        if not self._ast_node:
-            return self._text
-        if isinstance(self._ast_node, ast.Constant):
+        if not self.ast_node:
+            return self.text
+        if isinstance(self.ast_node, ast.Constant):
             return "constant"
-        if isinstance(self._ast_node, ast.Module):
+        if isinstance(self.ast_node, ast.Module):
             return f"Parent Module"
-        if isinstance(self._ast_node, ast.Assign):
+        if isinstance(self.ast_node, ast.Assign):
             return (
                 "Assignment: ("
                 + ", ".join(
-                    [Node(target).__repr__() for target in self._ast_node.targets]
+                    [Node(target).__repr__() for target in self.ast_node.targets]
                 )
                 + ") = ("
-                + Node(self._ast_node.value).__repr__()
+                + Node(self.ast_node.value).__repr__()
                 + ")"
             )
-        if isinstance(self._ast_node, ast.Call):
+        if isinstance(self.ast_node, ast.Call):
             return (
                 "Function Call: ("
-                + Node(self._ast_node.func).__repr__()
+                + Node(self.ast_node.func).__repr__()
                 + ") with args ("
-                + ", ".join([Node(arg).__repr__() for arg in self._ast_node.args])
+                + ", ".join([Node(arg).__repr__() for arg in self.ast_node.args])
                 + ")"
             )
-        if isinstance(self._ast_node, ast.BoolOp):
+        if isinstance(self.ast_node, ast.BoolOp):
             return (
                 "Boolean Op: ("
-                + ", ".join([Node(value).__repr__() for value in self._ast_node.values])
+                + ", ".join([Node(value).__repr__() for value in self.ast_node.values])
                 + ")"
             )
-        if isinstance(self._ast_node, ast.If):
-            return "If (" + self._ast_node.test.__repr__() + ")"
+        if isinstance(self.ast_node, ast.If):
+            return "If (" + self.ast_node.test.__repr__() + ")"
 
         # not all Ast types have a name, but all should have some sort of identifying data
         try:
-            get_name = self._ast_node.name
+            get_name = self.ast_node.name
         except AttributeError:
-            if isinstance(self._ast_node, ast.Attribute):
-                get_name = self._ast_node.attr
-            elif isinstance(self._ast_node, ast.Name):
-                get_name = self._ast_node.id
+            if isinstance(self.ast_node, ast.Attribute):
+                get_name = self.ast_node.attr
+            elif isinstance(self.ast_node, ast.Name):
+                get_name = self.ast_node.id
             else:
                 raise ValueError from AttributeError
 
         return (
-            f"{pretty_type(type(self._ast_node))} '{get_name}' "
-            + f"at {(self._ast_node.lineno, self._ast_node.col_offset)}"
+            f"{pretty_type(type(self.ast_node))} '{get_name}' "
+            + f"at {(self.ast_node.lineno, self.ast_node.col_offset)}"
         )
 
-    def assign_text(self, text):
-        self._text = text
-
-    def text(self):
-        return self._text
-
     def print_children(self):
-        for subnode in self._ast_node.body:
+        out_str = ""
+        for subnode in self.ast_node.body:
             try:
-                print(Node(subnode).__repr__())
+                out_str += f"{Node(subnode).__repr__()}\n"
+                
             except ForbiddenNodeType:
                 continue
+        return out_str
 
 
 class SmartNode(Node):
@@ -113,72 +107,72 @@ class SmartNode(Node):
 
     def __init__(self, ast_node=None, source: Source = None, parent=None):
         super().__init__(ast_node)
-        self._source = source
-        self._parent = parent
-        self._children = {}
-        self._summary = ""
+        self.source = source
+        self.parent = parent
+        self.children = {}
+        self.summary = ""
 
         # to my knowledge, neither ast nor jedi is good at tracking down class inheritance,
         # so here we keep track of any base classes. This comes up if you see a call to "super()".
-        # That being said, this functionality is limited to simple inheritance structures, because
+        # This functionality is limited to simple inheritance structures, because
         # we cannot use Python's import precedence resolution tool without executing
-        self._inheritance = self.infer_inheritance()
+        self.inheritance = self.infer_inheritance()
 
     def __repr__(self):
-        if self._summary:
-            return self._summary
+        if self.summary:
+            return self.summary
         else:
             return super().__repr__()
 
     def infer_inheritance(self):
-        if not isinstance(self._ast_node, ast.ClassDef):
-            if self._parent:
-                return self._parent.infer_inheritance()
+        if not isinstance(self.ast_node, ast.ClassDef):
+            if self.parent:
+                return self.parent.infer_inheritance()
             else:
                 return None
-        if len(self._ast_node.bases) > 1:
+        if len(self.ast_node.bases) > 1:
             logging.warning(
                 "ASTound cannot resolve multiple inheritance. Defaulting to first parent class."
             )
-        return astor.to_source(self._ast_node.bases[0]).split("\n")[0]
+        return astor.to_source(self.ast_node.bases[0]).split("\n")[0]
 
     def get_text(self):
-        if isinstance(self._ast_node, ast.Module):
-            return self._source.text()
+        if isinstance(self.ast_node, ast.Module):
+            return self.source.text
 
-        if isinstance(self._ast_node, ast.Call):
+        if isinstance(self.ast_node, ast.Call):
             # assert False
-            line, col = self._ast_node.lineno, self._ast_node.col_offset
-            get_first_ref = self._source.jedi.infer(line, col)[0]
+            line, col = self.ast_node.lineno, self.ast_node.col_offset
+            get_first_ref = self.source.jedi.infer(line, col)[0]
 
             if get_first_ref.full_name.__contains__("super"):
                 return (
                     "Function call '"
-                    + astor.to_source(self._ast_node)
+                    + astor.to_source(self.ast_node)
                     + "' inherited from "
-                    + self._inheritance
+                    + self.inheritance
                 )
 
             function_name = get_first_ref.full_name.split(".")[-1]
 
-            visitor = ExtractFunctionSource(function_name, self._source)
-            visitor.visit(ast.parse(self._source.text()))
+            visitor = ExtractFunctionSource(function_name, self.source)
+            visitor.visit(ast.parse(self.source.text))
             return visitor.function_def
 
-        return self._source.text().split("\n")[
-            self._ast_node.lineno - 1 : self._ast_node.end_lineno
+        return self._source.text.split("\n")[
+            self.ast_node.lineno - 1 : self.ast_node.end_lineno
         ]
 
     def get_child_by_loc(self, line, col):
         child_list = []
-        if hasattr(self._ast_node, "body"):
-            child_list += self._ast_node.body
-        if hasattr(self._ast_node, "targets"):
-            child_list += self._ast_node.targets
-        if hasattr(self._ast_node, "value"):
-            child_list += [self._ast_node.value]
-        if hasattr(self._ast_node, "values"):
-            child_list += self._ast_node.values
+        if hasattr(self.ast_node, "targets"):
+            child_list += self.ast_node.targets
+        if hasattr(self.ast_node, "value"):
+            child_list += [self.ast_node.value]
+        if hasattr(self.ast_node, "values"):
+            child_list += self.ast_node.values
+        if hasattr(self.ast_node, "body"):
+            child_list += self.ast_node.body
 
         for subnode in child_list:
             if subnode.lineno == line and subnode.col_offset == col:
@@ -186,34 +180,34 @@ class SmartNode(Node):
         raise ValueError
 
     def attach_child(self, line, col):
-        if (line, col) in self._children:
+        if (line, col) in self.children:
             raise ValueError("child already exists")
 
-        self._children[(line, col)] = SmartNode(
-            self.get_child_by_loc(line, col), source=self._source, parent=self
+        self.children[(line, col)] = SmartNode(
+            self.get_child_by_loc(line, col), source=self.source, parent=self
         )
 
     def link_child(self, line, col):
-        parent_type = str(type(self._ast_node))
-        child_type = str(type(self._children[line, col]))
-        link_field = self._children[line, col]._link_field
+        parent_type = str(type(self.ast_node))
+        child_type = str(type(self.children[line, col]))
+        link_field = self.children[line, col].link_field
 
         # TODO - CACHE LINKS!
 
         link_prompt = (
             "Please describe in one sentence the relationship between a python syntax parent node of type "
-            + str(type(self._ast_node))
+            + str(type(self.ast_node))
             + " and a child node of type "
-            + str(type(self._children[line, col]))
+            + str(type(self.children[line, col]))
             + f" from the {from_field} field of the parent."
         )
 
     def attach_manual(self, name, child):
-        self._children[name] = child
+        self.children[name] = child
 
     def summarize(self, client):
-        if len(self._summary) > 0:
-            return self._summary
+        if len(self_summary) > 0:
+            return self.summary
 
         individual_prompt = INDIVIDUAL_SUMMARY_HEADER + "".join(self.get_text())
 
@@ -226,7 +220,7 @@ class SmartNode(Node):
             .text
         )
 
-        if len(self._children) == 0:
+        if len(self.children) == 0:
             self.summary = individual_summary
         else:
             joint_prompt = (
@@ -235,7 +229,7 @@ class SmartNode(Node):
                 + "\n".join(
                     [
                         f"{child_header(x)}{x.summarize(client)}"
-                        for x in self._children.values()
+                        for x in self.children.values()
                     ]
                 )
             )
@@ -249,6 +243,6 @@ class SmartNode(Node):
                 .text
             )
 
-            self._summary = joint_summary
+            self.summary = joint_summary
 
-        return self._summary
+        return self.summary

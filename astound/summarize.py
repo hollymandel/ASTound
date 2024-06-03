@@ -1,33 +1,31 @@
 import ast
+import json
 from types import MappingProxyType
-from typing import Optional
+from typing import Optional, Union, Dict
 
 import anthropic
-import smartnode
+from astound.smartnode import SmartNode
+
+with open("astound/prompts.json", "r") as f:
+    PROMPTS = MappingProxyType(json.load(f))
 
 MESSAGE_KWARGS = MappingProxyType(
     {
         "model": "claude-3-haiku-20240307",
         "max_tokens": 200,
         "temperature": 0.0,
-        "system": SYSTEM_PROMPT,
+        "system": PROMPTS["system_prompt"],
         # "api_key": YOUR_API_KEY
     }
 )
-
-FORBIDDEN_TYPES = (ast.ImportFrom, ast.Import, ast.ListComp)
-
-with open("prompts.json", "r") as f:
-    PROMPTS = MappingProxyType(json.load(f))
-
 
 def summarize(
     node: SmartNode, client, prompts: Optional[Union[MappingProxyType, Dict]] = None
 ):
     prompts = prompts or PROMPTS
 
-    if len(node._summary) > 0:
-        return node._summary
+    if len(node.summary) > 0:
+        return node.summary
 
     individual_prompt = prompts["individual_header"] + "".join(node.get_text())
 
@@ -39,7 +37,7 @@ def summarize(
         .text
     )
 
-    if len(node._children) == 0:
+    if len(node.children) == 0:
         node.summary = individual_summary
     else:
         joint_prompt = (
@@ -48,7 +46,7 @@ def summarize(
             + "\n".join(
                 [
                     f"{child_header(x)}{x.summarize(client)}"
-                    for x in node._children.values()
+                    for x in node.children.values()
                 ]
             )
         )
@@ -61,6 +59,6 @@ def summarize(
             .text
         )
 
-        node._summary = joint_summary
+        node.summary = joint_summary
 
-    return node._summary
+    return node.summary
