@@ -11,6 +11,7 @@ FORBIDDEN_TYPES = (
     ast.For,
     ast.Return,
     ast.Constant,
+    ast.Name,
 )
 
 jedi.settings.fast_parser = (
@@ -73,8 +74,6 @@ class Node:
         except AttributeError:
             if isinstance(self.ast_node, ast.Attribute):
                 return self.ast_node.attr
-            if isinstance(self.ast_node, ast.Name):
-                return self.ast_node.id
         raise ValueError
 
     def split(self, tag=""):
@@ -89,24 +88,31 @@ class Node:
 
         if isinstance(self.ast_node, ast.Module):
             for subnode in self.ast_node.body:
-                components.extend(Node(subnode).split(tag + "Module.body/"))
+                components.extend(Node(subnode).split(tag + " Module.body >>"))
+        elif isinstance(self.ast_node, ast.Tuple):
+            for subnode in self.ast_node.elts:
+                components.extend(Node(subnode).split(tag + " List.elts >>"))
+        elif isinstance(self.ast_node, ast.Compare):
+            for subnode in self.ast_node.comparators:
+                components.extend(Node(subnode).split(tag + " Compare.comparators >>"))
+            components.extend(Node(self.ast_node.left).split(tag + " Compare.left >>"))
         elif isinstance(self.ast_node, ast.Expr):
             components.extend(
-                Node(self.ast_node.value).split(tag + "Expression.value/")
+                Node(self.ast_node.value).split(tag + " Expression.value >>")
             )
         elif isinstance(self.ast_node, ast.Assign):
             for subnode in self.ast_node.targets:
-                components.extend(Node(subnode).split(tag + "Assign.target/"))
-            components.extend(Node(self.ast_node.value).split(tag + "Assign.value/"))
+                components.extend(Node(subnode).split(tag + " Assign.target >>"))
+            components.extend(Node(self.ast_node.value).split(tag + " Assign.value >>"))
         elif isinstance(self.ast_node, ast.Call):
-            components.extend(Node(self.ast_node.func).split(tag + "Call.func/"))
+            components.extend(Node(self.ast_node.func).split(tag + " Call.func >>"))
             for subnode in self.ast_node.args:
-                components.extend(Node(subnode).split(tag + "Call.arg/"))
+                components.extend(Node(subnode).split(tag + " Call.arg >>"))
         elif isinstance(self.ast_node, ast.BoolOp):
             for subnode in self.ast_node.args:
-                components.extend(Node(subnode).split(tag + "BoolOp.arg/"))
+                components.extend(Node(subnode).split(tag + " BoolOp.arg >>"))
         elif isinstance(self.ast_node, ast.If):
-            components.extend(Node(self.ast_node.test).split(tag + "If.test/"))
+            components.extend(Node(self.ast_node.test).split(tag + " If.test >>"))
         else:
             components.append((Node(self.ast_node), tag))
 
@@ -128,8 +134,7 @@ class Node:
 
         return "\n".join(
             [
-                f"{tag} >> "
-                + f"{pretty_type(type(component.ast_node))} '{component.name()}' "
+                f"{pretty_type(type(component.ast_node))} '{component.name()}' "
                 + f"at {(component.ast_node.lineno, component.ast_node.col_offset)}"
                 for component, tag in self.split()
             ]
@@ -173,11 +178,10 @@ class SmartNode(Node):
         out_str = ""
 
         if self.ast_node is not None:
-            for subnode in self.body():
-                try:
-                    out_str += f"{subnode}\n"
-                except ForbiddenNodeType:
+            for subnode, tag in self.body():
+                if any(isinstance(subnode, ft) for ft in FORBIDDEN_TYPES):
                     continue
+                out_str += f"{tag} {subnode}\n"
         return out_str
 
     def attach_child(self, line, col):
