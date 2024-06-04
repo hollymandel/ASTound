@@ -18,35 +18,46 @@ jedi.settings.fast_parser = (
 )
 
 
-def pretty_type(type):
-    return str(type).split("ast.")[-1].split("'>")[0]
+def pretty_type(t):
+    return str(t).rsplit("ast.", maxsplit=1)[-1].split("'>")[0]
 
 
 class ForbiddenNodeType(BaseException):
     pass
 
+class ExtractFunctionSource(ast.NodeVisitor):
+    def __init__(self, target_function_name, source):
+        self.target_function_name = target_function_name
+        self.source = source
+        self.function_def = None
 
+    def visit_FunctionDef(self, node):
+        if node.name == self.target_function_name:
+            self.function_def = ast.get_source_segment(self.source.text(), node)
+        self.generic_visit(node)
+        
 class Source:
     """mutable wrapper around source text"""
 
-    def __init__(self, name, path):
-        self.name = name
-        with open(path, "r") as file:
+    def __init__(self, path):
+        with open(path, "r", encoding="utf-8") as file:
             self.text = file.read()
         self.jedi = jedi.Script(self.text)
 
 
 class Node:
-    """thin wrapper around AST for formatting and printing. Lots of special casing to
-    convert python grammar into human- (and claude-) readable text"""
+    """thin wrapper around AST to simplify the tree structure. Body is accessed via self.body(), and all
+    listed elements are simplified using self.split(). The purpose is to flatten composite nodes like
+    assignments and if-statements into the relevant children so that the user does not have to do
+    an extra navigation step."""
 
     def __init__(self, ast_node=None):
         if not isinstance(ast_node, ast.AST):
-            raise ValueError("ast node must be a type of AST node")
-
+            raise ValueError("ast_node type must inherit from ast.AST")
         if any(
             isinstance(ast_node, forbidden_type) for forbidden_type in FORBIDDEN_TYPES
         ):
+            logging.info("encountered forbidden type")
             self.ast_node = None
         else:
             self.ast_node = ast_node
@@ -54,8 +65,7 @@ class Node:
 
     def name(self):
         if self.ast_node is None:
-            return
-
+            return ""
         try:
             return self.ast_node.name
         except AttributeError:
@@ -73,7 +83,8 @@ class Node:
         components = []  # (ast node, relationship annotation)
 
         if self.ast_node is None:
-            return []
+            return components
+            
         if isinstance(self.ast_node, ast.Module):
             for subnode in self.ast_node.body:
                 components.extend(Node(subnode).split(tag + "Module.body/"))
@@ -107,36 +118,20 @@ class Node:
         ]
 
     def __repr__(self):
+        """if a node is composite, display all its elements. Nontrivial case should rarely occur, since
+        user should directly attach component nodes."""
+
         if self.ast_node is None:
             return ""
 
         return "\n".join(
             [
-                (
-                    f"{component[1]} >> "
-                    + f"{pretty_type(type(component[0].ast_node))} '{component[0].name()}' "
-                    + f"at {(component[0].ast_node.lineno, component[0].ast_node.col_offset)}"
-                )
-                for component in self.split()
+                f"{tag} >> "
+                + f"{pretty_type(type(component.ast_node))} '{component.name()}' "
+                + f"at {(component.ast_node.lineno, component.ast_node.col_offset)}"
+                for component, tag in self.split()
             ]
         )
-
-    def get_child_by_loc(self, line, col):
-        for subnode, _ in self.body():
-            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
-                return subnode.ast_node
-        raise ValueError
-
-    def print_children(self):
-        out_str = ""
-
-        if self.ast_node is not None:
-            for subnode in self.body():
-                try:
-                    out_str += f"{subnode.__repr__()}\n"
-                except ForbiddenNodeType:
-                    continue
-        return out_str
 
 
 class SmartNode(Node):
@@ -155,23 +150,44 @@ class SmartNode(Node):
         # we cannot use Python's import precedence resolution tool without executing
         self.inheritance = self.infer_inheritance()
 
-    def __repr__(self):
-        if self.summary:
-            return self.summary
-        else:
-            return super().__repr__()
-
     def infer_inheritance(self):
         if not isinstance(self.ast_node, ast.ClassDef):
             if self.parent:
                 return self.parent.infer_inheritance()
-            else:
-                return None
+            return None
         if len(self.ast_node.bases) > 1:
             logging.warning(
                 "ASTound cannot resolve multiple inheritance. Defaulting to first parent class."
             )
-        return astor.to_source(self.ast_node.bases[0]).split("\n")[0]
+        return astor.to_source(self.ast_node.bases[0]).split("\n", maxsplit=1)[0]
+
+    def get_child(self, line, col):
+        for subnode, _ in self.body():
+            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
+                return subnode.ast_node
+        raise ValueError
+
+    def print_children(self):
+        out_str = ""
+
+        if self.ast_node is not None:
+            for subnode in self.body():
+                try:
+                    out_str += f"{subnode}\n"
+                except ForbiddenNodeType:
+                    continue
+        return out_str
+
+    def attach_child(self, line, col):
+        if (line, col) in self.children:
+            raise ValueError("child already exists")
+
+        self.children[(line, col)] = SmartNode(
+            self.get_child(line, col), source=self.source, parent=self
+        )
+
+    def attach_manual(self, name, child):
+        self.children[name] = child
 
     def get_text(self):
         if isinstance(self.ast_node, ast.Module):
@@ -182,7 +198,7 @@ class SmartNode(Node):
             line, col = self.ast_node.lineno, self.ast_node.col_offset
             get_first_ref = self.source.jedi.infer(line, col)[0]
 
-            if get_first_ref.full_name.__contains__("super"):
+            if "super" in get_first_ref.full_name:
                 return (
                     "Function call '"
                     + astor.to_source(self.ast_node)
@@ -199,14 +215,3 @@ class SmartNode(Node):
         return self.source.text.split("\n")[
             self.ast_node.lineno - 1 : self.ast_node.end_lineno
         ]
-
-    def attach_child(self, line, col):
-        if (line, col) in self.children:
-            raise ValueError("child already exists")
-
-        self.children[(line, col)] = SmartNode(
-            self.get_child_by_loc(line, col), source=self.source, parent=self
-        )
-
-    def attach_manual(self, name, child):
-        self.children[name] = child
