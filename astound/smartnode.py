@@ -25,6 +25,7 @@ def pretty_type(t):
 class ForbiddenNodeType(BaseException):
     pass
 
+
 class ExtractFunctionSource(ast.NodeVisitor):
     def __init__(self, target_function_name, source):
         self.target_function_name = target_function_name
@@ -35,7 +36,8 @@ class ExtractFunctionSource(ast.NodeVisitor):
         if node.name == self.target_function_name:
             self.function_def = ast.get_source_segment(self.source.text(), node)
         self.generic_visit(node)
-        
+
+
 class Source:
     """mutable wrapper around source text"""
 
@@ -84,7 +86,7 @@ class Node:
 
         if self.ast_node is None:
             return components
-            
+
         if isinstance(self.ast_node, ast.Module):
             for subnode in self.ast_node.body:
                 components.extend(Node(subnode).split(tag + "Module.body/"))
