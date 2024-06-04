@@ -74,7 +74,6 @@ class Node:
 
         if self.ast_node is None:
             return []
-
         if isinstance(self.ast_node, ast.Module):
             for subnode in self.ast_node.body:
                 components.extend(Node(subnode).split(tag + "Module.body/"))
@@ -86,19 +85,15 @@ class Node:
             for subnode in self.ast_node.targets:
                 components.extend(Node(subnode).split(tag + "Assign.target/"))
             components.extend(Node(self.ast_node.value).split(tag + "Assign.value/"))
-
         elif isinstance(self.ast_node, ast.Call):
             components.extend(Node(self.ast_node.func).split(tag + "Call.func/"))
             for subnode in self.ast_node.args:
                 components.extend(Node(subnode).split(tag + "Call.arg/"))
-
         elif isinstance(self.ast_node, ast.BoolOp):
             for subnode in self.ast_node.args:
                 components.extend(Node(subnode).split(tag + "BoolOp.arg/"))
-
         elif isinstance(self.ast_node, ast.If):
             components.extend(Node(self.ast_node.test).split(tag + "If.test/"))
-
         else:
             components.append((Node(self.ast_node), tag))
 
@@ -125,6 +120,12 @@ class Node:
                 for component in self.split()
             ]
         )
+
+    def get_child_by_loc(self, line, col):
+        for subnode, _ in self.body():
+            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
+                return subnode.ast_node
+        raise ValueError
 
     def print_children(self):
         out_str = ""
@@ -199,33 +200,12 @@ class SmartNode(Node):
             self.ast_node.lineno - 1 : self.ast_node.end_lineno
         ]
 
-    def get_child_by_loc(self, line, col):
-        for subnode, _ in self.body():
-            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
-                return subnode.ast_node
-        raise ValueError
-
     def attach_child(self, line, col):
         if (line, col) in self.children:
             raise ValueError("child already exists")
 
         self.children[(line, col)] = SmartNode(
             self.get_child_by_loc(line, col), source=self.source, parent=self
-        )
-
-    def link_child(self, line, col):
-        parent_type = str(type(self.ast_node))
-        child_type = str(type(self.children[line, col]))
-        link_field = self.children[line, col].link_field
-
-        # TODO - CACHE LINKS!
-
-        link_prompt = (
-            "Please describe in one sentence the relationship between a python syntax parent node of type "
-            + str(type(self.ast_node))
-            + " and a child node of type "
-            + str(type(self.children[line, col]))
-            + f" from the {from_field} field of the parent."
         )
 
     def attach_manual(self, name, child):
