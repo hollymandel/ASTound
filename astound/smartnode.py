@@ -41,8 +41,8 @@ class Node:
     convert python grammar into human- (and claude-) readable text"""
 
     def __init__(self, ast_node=None):
-        if isinstance(ast_node, Node):
-            raise ValueError("stop passing an ast node")
+        if not isinstance(ast_node, ast.AST):
+            raise ValueError("ast node must be a type of AST node")
 
         if any(
             isinstance(ast_node, forbidden_type) for forbidden_type in FORBIDDEN_TYPES
