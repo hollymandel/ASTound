@@ -1,9 +1,10 @@
 import ast
 import json
 from types import MappingProxyType
-from typing import Optional, Union, Dict
+from typing import Dict, Optional, Union
 
 import anthropic
+
 from astound.smartnode import SmartNode
 
 with open("astound/prompts.json", "r") as f:
@@ -18,6 +19,14 @@ MESSAGE_KWARGS = MappingProxyType(
         # "api_key": YOUR_API_KEY
     }
 )
+
+
+def child_header(child):
+    if hasattr(child, "_ast_node"):
+        return f"Here is information about a child of type {type(child._ast_node)}.\n"
+    else:
+        return f"Here is information about a child.\n"
+
 
 def summarize(
     node: SmartNode, client, prompts: Optional[Union[MappingProxyType, Dict]] = None
@@ -45,7 +54,7 @@ def summarize(
             + individual_summary
             + "\n".join(
                 [
-                    f"{child_header(x)}{x.summarize(client)}"
+                    f"{child_header(x)}{summarize(x, client)}"
                     for x in node.children.values()
                 ]
             )

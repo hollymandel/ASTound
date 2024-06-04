@@ -4,14 +4,23 @@ import logging
 import astor
 import jedi
 
-FORBIDDEN_TYPES = (ast.ImportFrom, ast.Import, ast.ListComp, ast.For, ast.If, ast.Return)
+FORBIDDEN_TYPES = (
+    ast.ImportFrom,
+    ast.Import,
+    ast.ListComp,
+    ast.For,
+    ast.Return,
+    ast.Constant,
+)
 
 jedi.settings.fast_parser = (
     False  # otherwise jedi will only maintain one script object!
 )
 
+
 def pretty_type(type):
     return str(type).split("ast.")[-1].split("'>")[0]
+
 
 class ForbiddenNodeType(BaseException):
     pass
@@ -26,79 +35,106 @@ class Source:
             self.text = file.read()
         self.jedi = jedi.Script(self.text)
 
+
 class Node:
     """thin wrapper around AST for formatting and printing. Lots of special casing to
     convert python grammar into human- (and claude-) readable text"""
 
     def __init__(self, ast_node=None):
+        if isinstance(ast_node, Node):
+            raise ValueError("stop passing an ast node")
+
         if any(
             isinstance(ast_node, forbidden_type) for forbidden_type in FORBIDDEN_TYPES
         ):
-            raise ForbiddenNodeType("import nodes excluded")
-        if isinstance(ast_node, ast.Expr):
-            ast_node = ast_node.value
-
-        self.ast_node = ast_node
+            self.ast_node = None
+        else:
+            self.ast_node = ast_node
         self.text = ""
 
-    def __repr__(self):
-        if not self.ast_node:
-            return self.text
-        if isinstance(self.ast_node, ast.Constant):
-            return "constant"
-        if isinstance(self.ast_node, ast.Module):
-            return f"Parent Module"
-        if isinstance(self.ast_node, ast.Assign):
-            return (
-                "Assignment: ("
-                + ", ".join(
-                    [Node(target).__repr__() for target in self.ast_node.targets]
-                )
-                + ") = ("
-                + Node(self.ast_node.value).__repr__()
-                + ")"
-            )
-        if isinstance(self.ast_node, ast.Call):
-            return (
-                "Function Call: ("
-                + Node(self.ast_node.func).__repr__()
-                + ") with args ("
-                + ", ".join([Node(arg).__repr__() for arg in self.ast_node.args])
-                + ")"
-            )
-        if isinstance(self.ast_node, ast.BoolOp):
-            return (
-                "Boolean Op: ("
-                + ", ".join([Node(value).__repr__() for value in self.ast_node.values])
-                + ")"
-            )
-        if isinstance(self.ast_node, ast.If):
-            return "If (" + self.ast_node.test.__repr__() + ")"
+    def name(self):
+        if self.ast_node is None:
+            return
 
-        # not all Ast types have a name, but all should have some sort of identifying data
         try:
-            get_name = self.ast_node.name
+            return self.ast_node.name
         except AttributeError:
             if isinstance(self.ast_node, ast.Attribute):
-                get_name = self.ast_node.attr
-            elif isinstance(self.ast_node, ast.Name):
-                get_name = self.ast_node.id
-            else:
-                raise ValueError from AttributeError
+                return self.ast_node.attr
+            if isinstance(self.ast_node, ast.Name):
+                return self.ast_node.id
+        raise ValueError
 
-        return (
-            f"{pretty_type(type(self.ast_node))} '{get_name}' "
-            + f"at {(self.ast_node.lineno, self.ast_node.col_offset)}"
+    def split(self, tag=""):
+        """Recursive node simplification. Breaks up composite nodes like function calls
+        and assigments and directly points to their relevant components, which should have
+        all children contained in a single "body" field."""
+
+        components = []  # (ast node, relationship annotation)
+
+        if self.ast_node is None:
+            return []
+
+        if isinstance(self.ast_node, ast.Module):
+            for subnode in self.ast_node.body:
+                components.extend(Node(subnode).split(tag + "Module.body/"))
+        elif isinstance(self.ast_node, ast.Expr):
+            components.extend(
+                Node(self.ast_node.value).split(tag + "Expression.value/")
+            )
+        elif isinstance(self.ast_node, ast.Assign):
+            for subnode in self.ast_node.targets:
+                components.extend(Node(subnode).split(tag + "Assign.target/"))
+            components.extend(Node(self.ast_node.value).split(tag + "Assign.value/"))
+
+        elif isinstance(self.ast_node, ast.Call):
+            components.extend(Node(self.ast_node.func).split(tag + "Call.func/"))
+            for subnode in self.ast_node.args:
+                components.extend(Node(subnode).split(tag + "Call.arg/"))
+
+        elif isinstance(self.ast_node, ast.BoolOp):
+            for subnode in self.ast_node.args:
+                components.extend(Node(subnode).split(tag + "BoolOp.arg/"))
+
+        elif isinstance(self.ast_node, ast.If):
+            components.extend(Node(self.ast_node.test).split(tag + "If.test/"))
+
+        else:
+            components.append((Node(self.ast_node), tag))
+
+        return components
+
+    def body(self):
+        return [
+            component
+            for child in self.ast_node.body
+            for component in Node(child).split()
+        ]
+
+    def __repr__(self):
+        if self.ast_node is None:
+            return ""
+
+        return "\n".join(
+            [
+                (
+                    f"{component[1]} >> "
+                    + f"{pretty_type(type(component[0].ast_node))} '{component[0].name()}' "
+                    + f"at {(component[0].ast_node.lineno, component[0].ast_node.col_offset)}"
+                )
+                for component in self.split()
+            ]
         )
 
     def print_children(self):
         out_str = ""
-        for subnode in self.ast_node.body:
-            try:
-                out_str += f"{Node(subnode).__repr__()}\n"
-                
-            except ForbiddenNodeType:
-                continue
+
+        if self.ast_node is not None:
+            for subnode in self.body():
+                try:
+                    out_str += f"{subnode.__repr__()}\n"
+                except ForbiddenNodeType:
+                    continue
         return out_str
 
 
@@ -159,24 +195,14 @@ class SmartNode(Node):
             visitor.visit(ast.parse(self.source.text))
             return visitor.function_def
 
-        return self._source.text.split("\n")[
+        return self.source.text.split("\n")[
             self.ast_node.lineno - 1 : self.ast_node.end_lineno
         ]
 
     def get_child_by_loc(self, line, col):
-        child_list = []
-        if hasattr(self.ast_node, "targets"):
-            child_list += self.ast_node.targets
-        if hasattr(self.ast_node, "value"):
-            child_list += [self.ast_node.value]
-        if hasattr(self.ast_node, "values"):
-            child_list += self.ast_node.values
-        if hasattr(self.ast_node, "body"):
-            child_list += self.ast_node.body
-
-        for subnode in child_list:
-            if subnode.lineno == line and subnode.col_offset == col:
-                return subnode
+        for subnode, _ in self.body():
+            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
+                return subnode.ast_node
         raise ValueError
 
     def attach_child(self, line, col):
@@ -204,45 +230,3 @@ class SmartNode(Node):
 
     def attach_manual(self, name, child):
         self.children[name] = child
-
-    def summarize(self, client):
-        if len(self_summary) > 0:
-            return self.summary
-
-        individual_prompt = INDIVIDUAL_SUMMARY_HEADER + "".join(self.get_text())
-
-        individual_summary = (
-            client.messages.create(
-                **CLAUDE_KWARGS,
-                messages=[{"role": "user", "content": individual_prompt}],
-            )
-            .content[0]
-            .text
-        )
-
-        if len(self.children) == 0:
-            self.summary = individual_summary
-        else:
-            joint_prompt = (
-                JOINT_SUMMARY_HEADER
-                + individual_summary
-                + "\n".join(
-                    [
-                        f"{child_header(x)}{x.summarize(client)}"
-                        for x in self.children.values()
-                    ]
-                )
-            )
-
-            joint_summary = (
-                client.messages.create(
-                    **CLAUDE_KWARGS,
-                    messages=[{"role": "user", "content": joint_prompt}],
-                )
-                .content[0]
-                .text
-            )
-
-            self.summary = joint_summary
-
-        return self.summary
