@@ -8,10 +8,9 @@ FORBIDDEN_TYPES = (
     ast.ImportFrom,
     ast.Import,
     ast.ListComp,
-    ast.For,
-    ast.Return,
     ast.Constant,
-    ast.Name,
+    ast.Slice,
+    ast.Subscript
 )
 
 jedi.settings.fast_parser = (
@@ -69,11 +68,12 @@ class Node:
     def name(self):
         if self.ast_node is None:
             return ""
-        try:
+        if hasattr(self.ast_node, "name"):
             return self.ast_node.name
-        except AttributeError:
-            if isinstance(self.ast_node, ast.Attribute):
-                return self.ast_node.attr
+        if hasattr(self.ast_node, "attr"):
+            return self.ast_node.attr
+        if hasattr(self.ast_node, "id"):
+            return self.ast_node.id
         raise ValueError
 
     def split(self, tag=""):
@@ -89,6 +89,10 @@ class Node:
         if isinstance(self.ast_node, ast.Module):
             for subnode in self.ast_node.body:
                 components.extend(Node(subnode).split(tag + " Module.body >>"))
+        elif isinstance(self.ast_node, ast.Return):
+            components.extend(Node(self.ast_node.value).split(tag + " Return.value >>"))
+        elif isinstance(self.ast_node, ast.UnaryOp):
+            components.extend(Node(self.ast_node.operand).split(tag + " UnaryOp.operand >>"))
         elif isinstance(self.ast_node, ast.Tuple):
             for subnode in self.ast_node.elts:
                 components.extend(Node(subnode).split(tag + " List.elts >>"))
@@ -172,7 +176,7 @@ class SmartNode(Node):
         for subnode, _ in self.body():
             if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
                 return subnode.ast_node
-        raise ValueError
+        raise ValueError("(line, col) referenced invalid")
 
     def print_children(self):
         out_str = ""
