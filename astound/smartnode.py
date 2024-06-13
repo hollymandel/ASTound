@@ -37,7 +37,7 @@ SKIP_TYPES = ast_node_types = {
     ast.Constant: None,
     ast.Load: None,
     ast.Eq: None
-} # the llm can infer these skips from syntax
+} # the llm can infer these skips from the text
 
 def get_ast_tuplestr(ast_node):
     return f'{ast_node.lineno}, {ast_node.col_offset}'
@@ -70,6 +70,7 @@ class Source:
     def __init__(self, path):
         with open(path, "r", encoding="utf-8") as file:
             self.text = file.read()
+        self.path = path
         self.jedi = jedi.Script(self.text)
 
 
@@ -176,7 +177,7 @@ class Node:
         if self.ast_node is None:
             return None
         if isinstance(self.ast_node,ast.Module):
-            return "Module"
+            return f"Module '{self.source.path}'"
 
         return "\n".join(
             [
@@ -238,7 +239,26 @@ class Node:
 
     def get_text(self):
         if isinstance(self.ast_node, ast.Module):
-            return self.source.text.split("\n")
+            return self.source.text
+
+        if isinstance(self.ast_node, ast.Call):
+            # assert False
+            line, col = self.ast_node.lineno, self.ast_node.col_offset
+            get_first_ref = self.source.jedi.infer(line, col)[0]
+
+            if "super" in get_first_ref.full_name:
+                return (
+                    "Function call '"
+                    + astor.to_source(self.ast_node)
+                    + "' inherited from "
+                    + self.inheritance
+                )
+
+            function_name = get_first_ref.full_name.split(".")[-1]
+
+            visitor = ExtractFunctionSource(function_name, self.source)
+            visitor.visit(ast.parse(self.source.text))
+            return visitor.function_def
 
         return self.source.text.split("\n")[
             self.ast_node.lineno - 1 : self.ast_node.end_lineno

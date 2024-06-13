@@ -4,6 +4,10 @@ from typing import Union
 from astound import summarize
 from astound.smartnode import Node, Source, pretty_type
 
+def display_tree(node, tag = ""):
+    print(tag + f"{node}")
+    for key, val in node.children.items():
+        display_tree(val, tag + f">> ")
 
 class Cursor:
     def __init__(self, root: Union[Source, Node]):
@@ -48,6 +52,13 @@ class Cursor:
         self.current.attach_manual(name, Node(ast_node = ast_node, source = source, parent = self.current))
         self.depth += 1
         self.current = self.current.children[name]
-        
+
+    def link_node(self, name:str, node: Node):
+        node = node.copy()
+        node.parent = self.current
+        self.current.attach_manual(name, node)
+        self.depth += 1
+        self.current = self.current.children[name]
+                
     def summarize_down(self):
         return summarize.summarize(self.current)
