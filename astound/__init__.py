@@ -22,3 +22,5 @@ if not api_key:
     raise NoAnthropicAPIKey(
         "An Anthropic API key must be supplied either as an environment variable (ANTHROPIC_API_KEY) or in astound/config.json"
     )
+
+claude_model = astound_config["claude_model"]

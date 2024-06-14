@@ -2,7 +2,7 @@ import json
 from types import MappingProxyType
 from typing import Optional, Union
 
-from astound import api_key
+from astound import api_key, claude_model
 from astound.node import Node
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
@@ -10,7 +10,7 @@ with open("data/prompts.json", "r", encoding="UTF-8") as f:
 
 MESSAGE_KWARGS = MappingProxyType(
     {
-        "model": "claude-3-haiku-20240307",
+        "model": claude_model,
         "max_tokens": 200,
         "temperature": 0.0,
         "system": PROMPTS["system_prompt"],
