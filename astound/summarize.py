@@ -2,7 +2,7 @@ import json
 from types import MappingProxyType
 from typing import Optional, Union
 
-from astound.smartnode import Node
+from astound.node import Node
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
     PROMPTS = MappingProxyType(json.load(f))
@@ -24,12 +24,10 @@ def child_header(child):
     return "Here is information about a child.\n"
 
 
-def summarize(
-    node: Node, prompts: Optional[Union[MappingProxyType, dict]] = None
-):
+def summarize(node: Node, prompts: Optional[Union[MappingProxyType, dict]] = None):
     prompts = prompts or PROMPTS
     client = Node.anthropic_client
-    
+
     if len(node.summary) > 0:
         return node.summary
 
@@ -50,10 +48,7 @@ def summarize(
             prompts["joint_header"]
             + individual_summary
             + "\n".join(
-                [
-                    f"{child_header(x)}{summarize(x)}"
-                    for x in node.children.values()
-                ]
+                [f"{child_header(x)}{summarize(x)}" for x in node.children.values()]
             )
         )
 

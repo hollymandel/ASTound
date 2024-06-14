@@ -1,7 +1,6 @@
 import json
-from types import MappingProxyType
-from typing import Optional, Union
 import logging
+from types import MappingProxyType
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
     PROMPTS = MappingProxyType(json.load(f))
@@ -17,47 +16,40 @@ MESSAGE_KWARGS = MappingProxyType(
 )
 
 
-def type_header(type):
+def type_header(t):
     return (
-        f"Which subfields of a python ast node of type {type} contain child nodes? " + 
+        f"Which subfields of a python ast node of type {t} contain child nodes? "
         "Return only immediate subfields, i.e. 'subfield' is ok but 'subfield.subsubfield' is not."
     )
 
 
-def parser_type_query(
-    type: str,
-    anthropic_client,
-    sqlite_conn
-):
+def parser_type_query(t: str, anthropic_client, sqlite_conn):
     try:
         cursor = sqlite_conn.cursor()
-    
-        type_query = cursor.execute(
-            'SELECT value FROM subfield_store WHERE key = ?', (type,)
-        )
+
+        cursor.execute("SELECT value FROM subfield_store WHERE key = ?", (t,))
         result = cursor.fetchone()
-    
-        if result: 
+
+        if result:
             response = result[0]
         else:
             if anthropic_client is None:
                 raise KeyError("unknown type and no anthropic client")
-            else:
-                prompt = type_header(type)
-                
+            prompt = type_header(t)
+
             response = (
                 anthropic_client.messages.create(
                     **MESSAGE_KWARGS, messages=[{"role": "user", "content": prompt}]
                 )
                 .content[0]
                 .text
-            ).replace(" ","")
-        
-            logging.info(f"Generated link for type {type}:\n{response}") 
-        
+            ).replace(" ", "")
+
+            logging.info("Generated link for type %s:\n%s", t, response)
+
             cursor.execute(
-                '''INSERT INTO subfield_store (key, value) VALUES (?, ?)'''
-                , (type, response)
+                """INSERT INTO subfield_store (key, value) VALUES (?, ?)""",
+                (t, response),
             )
     finally:
         cursor.close()
