@@ -79,7 +79,7 @@ class Node:
         for field in field_list:
             try:
                 this_attr = getattr(self.ast_node, field)
-            except KeyError:
+            except AttributeError:
                 logging.warning(
                     "encountered key error: %s has no field %s", self_type, field
                 )

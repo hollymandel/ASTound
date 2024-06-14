@@ -2,6 +2,7 @@ import json
 from types import MappingProxyType
 from typing import Optional, Union
 
+from astound import api_key
 from astound.node import Node
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
@@ -13,7 +14,7 @@ MESSAGE_KWARGS = MappingProxyType(
         "max_tokens": 200,
         "temperature": 0.0,
         "system": PROMPTS["system_prompt"],
-        # "api_key": YOUR_API_KEY
+        "api_key": api_key,
     }
 )
 
