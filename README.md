@@ -2,6 +2,6 @@
 
 You will need to enter your own Anthropic API key. This can be done via an environment variable `ANTHROPIC_API_KEY` or by editing `astound/config.json`. The config file also determines the Claude version. This [quickstart guide](https://docs.anthropic.com/en/docs/quickstart-guide) from Anthropic may be helpful.
 
-The main value-add of `astound` is that it provides a convenient way to select and concatenate the bits of code to submit to the language model. This tells the language model what parts of the code you want to focus on. Whether recursive summarization provides an additional advantage is less clear. As language models get larger and context windows get longer, the answer will probably converge to "no".
+The main value-add of `astound` is that it provides a convenient way to select and concatenate the bits of code to submit to the language model. This tells Claude what parts of the code you want to focus on. You could dump in the entire codebase, but then you would have to read the result! Whether recursive summarization provides an additional advantage is less clear. As language models get larger and context windows get longer, the answer will probably converge to "no".
 
 Want to know how `astound` works? [You're in luck!](https://github.com/hollymandel/astound/blob/main/demo.ipynb)
