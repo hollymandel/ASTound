@@ -2,6 +2,6 @@
 
 You will need to enter your own Anthropic API key. This can be done via the environment variable `ANTHROPIC_API_KEY` or by editing `astound/config.json`. The config file also determines the Claude version. This [quickstart guide](https://docs.anthropic.com/en/docs/quickstart-guide) from Anthropic may be helpful.
 
-The main value-add of `astound` is that it provides a convenient way to select and concatenate the bits of code to submit to the language model. This tells Claude what parts of the code you want to focus on. Whether recursive summarization provides an additional advantage is less clear.
+The main value-add of `astound` is that it provides a convenient way to select and concatenate the bits of code to submit to the language model. This tells Claude what parts of the code you want to focus on. Whether recursive summarization provides an additional advantage for frontier models is less clear.
 
 Want to know how `astound` works? [You're in luck!](https://github.com/hollymandel/astound/blob/main/demo.ipynb)
