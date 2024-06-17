@@ -37,22 +37,24 @@ class Source:
 
 
 class Node:
-    """Node is almost a wrapper around ast.AST, but it collapses much of the structure
-    of the syntax tree because language models do not need so much rigor to understand
-    the relationship between bits of code. Here is how the collapsing is implemented:
+    """
+    Node acts as a simplified wrapper for ast.AST to accommodate language model processing by
+    reducing the complexity of the syntax tree. This class modifies the structure to streamline
+    the interaction between code elements. Here's the implementation detail:
 
-    1. The constructor (self.__init__) replaces certain types, called  "skip types"
-        (see astound/ast_node_utils), with either a single child node or None. In the
-        first case it is to save the user an extra navigation step. In the second case
-        it is either because some types are self-explanatory or because certain
-        data-heavy types create too much clutter for the cursor.
-    2. Accessing and printing a Node's children is mediated by self.skip(). This method
-        behaves different based on the type of self.ast_node. If self.ast_node is a
-        "rich type" (see astound/ast_node_utils), split does nothing. Otherwise,
-        split determines which attributes of self.ast_node contain children and returns
-        a list containing all these children. Because the names of the relevant attributes
-        vary by ast node type, astound asks the language model which fields to look at,
-        and mantains these answers in a database. See astound/smartparse."""
+    1. Constructor (`self.__init__`):
+       - It simplifies the tree by replacing certain node types, referred to as "skip types"
+         (defined in `astound/ast_node_utils`), with either their single child node or None.
+       - This replacement helps reduce navigation steps for users or minimizes clutter from
+         self-explanatory or data-heavy node types.
+
+    2. Child Access and Representation (`self.skip()`):
+       - This method moderates how children of a Node are accessed and represented.
+       - If `self.ast_node` is a "rich type" (as defined in `astound/ast_node_utils`), the
+         method does nothing.
+       - For other types, it identifies and returns a list of children based on the node's
+         attributes, varying by the type of self.ast_node.
+    """
 
     sqlite_conn = sqlite3.connect("data/subfield_store.db")
     anthropic_client = anthropic.Anthropic()
@@ -167,17 +169,25 @@ class Node:
         return au.extract_name(self.ast_node)
 
     def infer_inheritance(self):
-        """to my knowledge, neither ast nor jedi is good at tracking down class inheritance,
-        so here we keep track of any base classes. If self.ast_node is a ClassDef,
-        the parent class name is infered from the source text. Otherwise, we recursively
-        check the inheritance of any parent class.
+        """
+        Tracks class inheritance when neither the 'ast' nor 'jedi' libraries can
+        effectively determine it.
 
-        Note that we assume a single parent class, because we cannot use Python's import
-        precedence resolution tool without executing.
+        This method maintains a record of any base classes associated with a given
+        class. If 'self.ast_node' is an instance of 'ClassDef', it infers the parent
+        class name directly from the source text. If 'self.ast_node' is not a
+        'ClassDef', it recursively checks the inheritance chain to find any parent classes.
+
+        Note:
+            This method assumes there is only one parent class because it does not execute
+            Python's import statements, thus bypassing the standard module and class
+            resolution mechanisms that would be available at runtime.
 
         Returns:
-            string: name of parent class of self (if ClassDef) or parent node that is ClassDef
+            str: The name of the parent class if 'self.ast_node' is a 'ClassDef', or the
+            nearest parent node that is a 'ClassDef'.
         """
+
         if not isinstance(self.ast_node, ast.ClassDef):
             if self.parent:
                 return self.parent.infer_inheritance()

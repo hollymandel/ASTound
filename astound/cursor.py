@@ -13,6 +13,8 @@ def display_tree(node, tag=""):
 
 
 class Cursor:
+    """Wraps astound/Node type with utilities for building and navigating a syntax tree."""
+
     def __init__(self, root: Union[Source, Node]):
         if isinstance(root, Source):
             ast_node = ast.parse(root.text)
@@ -48,7 +50,9 @@ class Cursor:
         self.current = self.current.parent
         self.depth -= 1
 
-    def link_source(self, name: str, source):
+    def link_source(self, name: str, source: Source):
+        """Attach a child node that is not part of the AST by creating a new Node
+        based on source. Essentially a wrapper for Node.attach_manual."""
         ast_node = ast.parse(source.text)
         self.current.attach_manual(
             name, Node(ast_node=ast_node, source=source, parent=self.current)
@@ -57,6 +61,9 @@ class Cursor:
         self.current = self.current.children[name]
 
     def link_node(self, name: str, node: Node):
+        """Attach a child node that is not part of the AST. Unlike link_source,
+        the input here should already be a Node. Essentially a wrapper for
+        Node.attach_manual."""
         node = node.copy()
         node.parent = self.current
         self.current.attach_manual(name, node)
@@ -64,4 +71,5 @@ class Cursor:
         self.current = self.current.children[name]
 
     def summarize_down(self):
+        """Recursive summarization of the current node and its attached children."""
         return summarize.summarize(self.current)

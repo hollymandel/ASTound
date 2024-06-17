@@ -26,6 +26,8 @@ def child_header(child):
 
 
 def summarize(node: Node, prompts: Optional[Union[MappingProxyType, dict]] = None):
+    """Recursive summarization via language model. Start at leaf nodes, summarize,
+    then summarize parents using summaries of children and text of parent."""
     prompts = prompts or PROMPTS
     client = Node.anthropic_client
 

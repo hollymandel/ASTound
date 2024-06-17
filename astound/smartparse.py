@@ -25,7 +25,22 @@ def type_header(t):
     )
 
 
-def parser_type_query(t: str, anthropic_client, sqlite_conn):
+def parser_type_query(
+    t: str, anthropic_client: "anthropic.Anthropic", sqlite_conn: "sqlite3.Connection"
+):
+    """
+    Determines which attributes of an ast node of a given type contain
+    child nodes by querying a language model. Avoids duplicate queries by maintaining
+    a database of types already encountered.
+
+    Inputs:
+        t: string of the name of the type. Type must inherit from ast.AST
+        anthropic_client: language model API client
+        sqlite_conn: database connection
+
+    Returns:
+        response (str): text list of attributes containing relevant children
+    """
     try:
         cursor = sqlite_conn.cursor()
 
