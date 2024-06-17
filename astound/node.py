@@ -11,6 +11,9 @@ from astound.smartparse import parser_type_query
 
 
 class ExtractFunctionSource(ast.NodeVisitor):
+    """Node visitor to extract the text of a function definition
+    given only the function name"""
+
     def __init__(self, target_function_name, source):
         self.target_function_name = target_function_name
         self.source = source
@@ -18,6 +21,7 @@ class ExtractFunctionSource(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         if node.name == self.target_function_name:
+            assert not self.function_def
             self.function_def = ast.get_source_segment(self.source.text, node)
         self.generic_visit(node)
 
@@ -33,32 +37,67 @@ class Source:
 
 
 class Node:
-    """methods for recursive summarization"""
+    """Node is almost a wrapper around ast.AST, but it collapses much of the structure
+    of the syntax tree because language models do not need so much rigor to understand
+    the relationship between bits of code. Here is how the collapsing is implemented:
+
+    1. The constructor (self.__init__) replaces certain types, called  "skip types"
+        (see astound/ast_node_utils), with either a single child node or None. In the
+        first case it is to save the user an extra navigation step. In the second case
+        it is either because some types are self-explanatory or because certain
+        data-heavy types create too much clutter for the cursor.
+    2. Accessing and printing a Node's children is mediated by self.skip(). This method
+        behaves different based on the type of self.ast_node. If self.ast_node is a
+        "rich type" (see astound/ast_node_utils), split does nothing. Otherwise,
+        split determines which attributes of self.ast_node contain children and returns
+        a list containing all these children. Because the names of the relevant attributes
+        vary by ast node type, astound asks the language model which fields to look at,
+        and mantains these answers in a database. See astound/smartparse."""
 
     sqlite_conn = sqlite3.connect("data/subfield_store.db")
     anthropic_client = anthropic.Anthropic()
 
-    def __init__(self, ast_node=None, source: Source = None, parent=None):
-        if not isinstance(ast_node, ast.AST):
-            raise ValueError("ast_node type must inherit from ast.AST")
-
+    def __init__(self, ast_node: ast.AST = None, source: Source = None, parent=None):
         self.ast_node = au.skip_type(ast_node)
         self.text = ""
         self.source = source
         self.parent = parent
         self.children = {}
         self.summary = ""
-
-        # to my knowledge, neither ast nor jedi is good at tracking down class inheritance,
-        # so here we keep track of any base classes. This comes up if you see a call to "super()".
-        # This functionality is limited to simple inheritance structures, because
-        # we cannot use Python's import precedence resolution tool without executing
         self.inheritance = self.infer_inheritance()
 
-    def split(self, tag=" ", max_depth=2):
-        """Recursive node simplification. Breaks up composite nodes like function calls
-        and assigments and directly points to their relevant components, which should have
-        all children contained in a single "body" field."""
+    def __repr__(self):
+        """If a node is not a rich type, display its components. Plus a bit of
+        special handling."""
+
+        if self.ast_node is None:
+            return None
+        if isinstance(self.ast_node, ast.Module):
+            return f"{au.pretty_type(type(self.ast_node))} '{self.name()}'"
+        return "\n".join(
+            [
+                f"{au.pretty_type(type(component.ast_node))} '{component.name()}' "
+                + f"at key '{au.get_ast_tuplestr(self.ast_node)}'"
+                for component, tag in self.split(max_depth=0)
+            ]
+        )
+
+    def split(self, tag: str = " ", max_depth: int = 2):
+        """
+        Recursively simplifies AST nodes that are not "rich types" (as defined in
+        astound/ast_node_utils). Breaks up nodes and returns a list of their
+        relevant components.
+
+        Args:
+            tag (str): A string that is edited to display recursion performed at
+                this step.
+            max_depth (int): The limit to recursion depth. Non-rich type nodes
+                will be returned if max_depth equals 0.
+
+        Returns:
+            List[tuple]: A list of tuples, each containing a Node and its
+            corresponding tag, for each component simplified.
+        """
 
         if au.is_rich_type(self.ast_node):
             return [(self, tag)]
@@ -106,6 +145,8 @@ class Node:
         return components
 
     def body(self):
+        """Applies split() to elements of the body attribute"""
+
         if not hasattr(self.ast_node, "body"):
             return []
         return [
@@ -116,42 +157,46 @@ class Node:
         ]
 
     def name(self):
+        """many ast.AST types have a name-like field but where it is stored
+        varies"""
+
         if self.ast_node is None:
             return "Null"
         if isinstance(self.ast_node, ast.Module):
             return self.source.path
         return au.extract_name(self.ast_node)
 
-    def __repr__(self):
-        """if a node is composite, display all its elements. Nontrivial case should rarely occur, since
-        user should directly attach component nodes."""
-
-        if self.ast_node is None:
-            return None
-        if isinstance(self.ast_node, ast.Module):
-            return f"{au.pretty_type(type(self.ast_node))} '{self.name()}'"
-        return "\n".join(
-            [
-                f"{au.pretty_type(type(component.ast_node))} '{component.name()}' "
-                + f"at key '{au.get_ast_tuplestr(self.ast_node)}'"
-                for component, tag in self.split(max_depth=0)
-            ]
-        )
-
     def infer_inheritance(self):
+        """to my knowledge, neither ast nor jedi is good at tracking down class inheritance,
+        so here we keep track of any base classes. If self.ast_node is a ClassDef,
+        the parent class name is infered from the source text. Otherwise, we recursively
+        check the inheritance of any parent class.
+
+        Note that we assume a single parent class, because we cannot use Python's import
+        precedence resolution tool without executing.
+
+        Returns:
+            string: name of parent class of self (if ClassDef) or parent node that is ClassDef
+        """
         if not isinstance(self.ast_node, ast.ClassDef):
             if self.parent:
                 return self.parent.infer_inheritance()
             return None
         if len(self.ast_node.bases) > 1:
             logging.warning(
-                "ASTound cannot resolve multiple inheritance. Defaulting to first parent class."
+                "astound cannot resolve multiple inheritance. Defaulting to first parent class."
             )
         if not self.ast_node.bases:
             return ""
         return astor.to_source(self.ast_node.bases[0]).split("\n", maxsplit=1)[0]
 
     def get_subnode(self, key):
+        """
+        Inputs:
+            key (str): `line, column` using ast conventions
+        Returns:
+            ast.AST: ast_node at that line, column
+        """
         line, col = au.tuplestr_to_tuple(key)
         for subnode, _ in self.body():
             if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
@@ -171,6 +216,7 @@ class Node:
         return out_str
 
     def attach_subnode(self, key):
+        """add subnode to the children attribute under `key`"""
         if key in self.children:
             raise ValueError("child already exists")
 
@@ -179,6 +225,8 @@ class Node:
         )
 
     def attach_manual(self, name: str, node):
+        """add a node that is not part of the AST to the children attribute
+        under `key`"""
         self.children[name] = node
 
     def print_children(self):
@@ -189,6 +237,12 @@ class Node:
         return out_str
 
     def get_text(self):
+        """Return empty string for ast.Module nodes to avoid including text not selected
+        by the user. For ast.Call nodes, use jedi to search for a function defintion and
+        return source text of the function defintion. For all other nodes, return the
+        source text of this node, indicated by ast_node.lineno and ast_node.end_lineno.
+        """
+
         # inputing the whole module would destroy the emphasis created by the tree
         if isinstance(self.ast_node, ast.Module):
             return ""
