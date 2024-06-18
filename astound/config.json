@@ -1,5 +1,4 @@
 {
     "jedi": {"fast_parser": false},
-    "api_key": null,
     "claude_model": "claude-3-haiku-20240307"
 }

@@ -2,7 +2,7 @@ import json
 import logging
 from types import MappingProxyType
 
-from astound import api_key, claude_model
+from astound import claude_model
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
     PROMPTS = MappingProxyType(json.load(f))
@@ -13,7 +13,6 @@ MESSAGE_KWARGS = MappingProxyType(
         "max_tokens": 50,
         "temperature": 0.0,
         "system": PROMPTS["field_system_prompt"],
-        "api_key": api_key,
     }
 )
 

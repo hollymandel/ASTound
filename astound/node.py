@@ -56,8 +56,10 @@ class Node:
          attributes, varying by the type of self.ast_node.
     """
 
+    # TODO: replace with context managers external to this class. Can't come up with a good
+    # solution consistent with jupyter notebook user interface...
     sqlite_conn = sqlite3.connect("data/subfield_store.db")
-    anthropic_client = anthropic.Anthropic()
+    anthropic_client = anthropic.Anthropic()  # requires ANTHROPIC_API_KEY env variable
 
     def __init__(self, ast_node: ast.AST = None, source: Source = None, parent=None):
         self.ast_node = au.skip_type(ast_node)
