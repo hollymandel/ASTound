@@ -103,6 +103,8 @@ class Node:
             corresponding tag, for each component simplified.
         """
 
+        if not self.ast_node:
+            return []
         if au.is_rich_type(self.ast_node):
             return [(self, tag)]
         if max_depth == 0:
@@ -114,37 +116,19 @@ class Node:
 
         self_type = au.pretty_type(self.ast_node)
         field_list = parser_type_query(
-            self_type, self.anthropic_client, self.sqlite_conn
-        )
-        field_list = field_list.split(",")
-        field_list = [x for x in field_list if x != " "]
+            self.ast_node, self.anthropic_client, self.sqlite_conn
+        ).split(",")
+        field_list = [x for x in field_list if x]
 
         for field in field_list:
-            try:
-                this_attr = getattr(self.ast_node, field)
-            except AttributeError:
-                logging.warning(
-                    "encountered key error: %s has no field %s", self_type, field
-                )
-                continue
-            if isinstance(this_attr, list):
-                for subnode in this_attr:
-                    if isinstance(subnode, ast.AST):
-                        components.extend(
-                            Node(subnode).split(
-                                tag + f" {self_type}.{field} >>", max_depth - 1
-                            )
-                        )
-                    else:
-                        logging.warning("omitting invalid field %s", field)
-            elif isinstance(this_attr, ast.AST):
+            this_attr = getattr(self.ast_node, field)
+            if not isinstance(this_attr, list):
+                this_attr = [this_attr]
+
+            for subnode in this_attr:
                 components.extend(
-                    Node(this_attr).split(
-                        tag + f" {self_type}.{field} >>", max_depth - 1
-                    )
+                    Node(subnode).split(tag + f" {self_type}.{field} >>", max_depth - 1)
                 )
-            else:
-                logging.warning("omitting invalid field %s ", field)
 
         return components
 

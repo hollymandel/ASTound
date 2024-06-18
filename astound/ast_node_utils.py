@@ -24,7 +24,7 @@ SKIP_TYPES = ast_node_types = {
     ast.Eq: None,
     ast.List: None,
     ast.Tuple: None,
-    ast.Dict: None,
+    ast.Dict: None
 }
 
 

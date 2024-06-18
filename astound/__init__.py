@@ -10,5 +10,5 @@ def load_config():
 
 
 astound_config = load_config()
-jedi.settings.fast_parser = config["jedi"]["fast_parser"]
+jedi.settings.fast_parser = astound_config["jedi"]["fast_parser"]
 claude_model = astound_config["claude_model"]

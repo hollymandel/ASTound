@@ -1,8 +1,10 @@
+import ast
 import json
 import logging
 from types import MappingProxyType
 
 from astound import claude_model
+from astound.ast_node_utils import pretty_type
 
 with open("data/prompts.json", "r", encoding="UTF-8") as f:
     PROMPTS = MappingProxyType(json.load(f))
@@ -24,8 +26,27 @@ def type_header(t):
     )
 
 
+def validate_field(ast_node, field):
+    if not hasattr(ast_node, field):
+        return False
+    this_attr = getattr(ast_node, field)
+    if not this_attr:
+        return True
+
+    # ambiguous case - field could be valid but empty
+    if isinstance(this_attr, ast.AST):
+        return True
+    if isinstance(this_attr, list):
+        if isinstance(this_attr[0], ast.AST):
+            return True
+        return False
+    return False
+
+
 def parser_type_query(
-    t: str, anthropic_client: "anthropic.Anthropic", sqlite_conn: "sqlite3.Connection"
+    ast_node: ast.AST,
+    anthropic_client: "anthropic.Anthropic",
+    sqlite_conn: "sqlite3.Connection",
 ):
     """
     Determines which attributes of an ast node of a given type contain
@@ -33,41 +54,47 @@ def parser_type_query(
     a database of types already encountered.
 
     Inputs:
-        t: string of the name of the type. Type must inherit from ast.AST
+        ast_node: ast node of the desired type. Note that while the query only depends
+            on the type of t, passing the entire node allows the parser to validate
+            its response.
         anthropic_client: language model API client
         sqlite_conn: database connection
 
     Returns:
-        response (str): text list of attributes containing relevant children
+        response (str): text list of names of fields that are (1.) attributes of the type
+        ast_node and (2.) contain None, a single ast node, or a list of ast_nodes.
     """
     try:
         cursor = sqlite_conn.cursor()
 
+        t = pretty_type(type(ast_node))
         cursor.execute("SELECT value FROM subfield_store WHERE key = ?", (t,))
         result = cursor.fetchone()
 
         if result:
-            response = result[0]
-        else:
-            if anthropic_client is None:
-                raise KeyError("unknown type and no anthropic client")
-            prompt = type_header(t)
+            return result[0]
 
-            response = (
-                anthropic_client.messages.create(
-                    **MESSAGE_KWARGS, messages=[{"role": "user", "content": prompt}]
-                )
-                .content[0]
-                .text
-            ).replace(" ", "")
-
-            logging.info("Generated link for type %s:\n%s", t, response)
-
-            cursor.execute(
-                """INSERT INTO subfield_store (key, value) VALUES (?, ?)""",
-                (t, response),
+        prompt = type_header(t)
+        pre_list = (
+            anthropic_client.messages.create(
+                **MESSAGE_KWARGS, messages=[{"role": "user", "content": prompt}]
             )
+            .content[0]
+            .text
+        )
+
+        # remove stray characters and invalid types from list
+        field_list = [field for field in pre_list if validate_field(ast_node, field)]
+        field_list = ",".join(field_list)
+
+        # insert into database
+        cursor.execute(
+            """INSERT INTO subfield_store (key, value) VALUES (?, ?)""",
+            (t, field_list),
+        )
+        logging.info("Generated list for type %s:\n%s", t, field_list)
+
+        return field_list
+
     finally:
         cursor.close()
-
-    return response
