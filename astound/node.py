@@ -35,6 +35,14 @@ class Source:
         self.path = path
         self.jedi = jedi.Script(self.text)
 
+    def view_text(self, line_start, line_end):
+        """Return the text of the current node with 1-start line numbers."""
+        source_list = self.text.split("\n")[line_start - 1 : line_end]
+        source_list = [
+            f"[{line_start + i}]   {txt}" for i, txt in enumerate(source_list)
+        ]
+        return "\n".join(source_list)
+
 
 class Node:
     """
@@ -105,11 +113,7 @@ class Node:
 
         if not self.ast_node:
             return []
-        if au.is_rich_type(self.ast_node):
-            return [(self, tag)]
         if max_depth == 0:
-            if au.is_rich_type(self.ast_node):
-                return [(self, tag)]
             return [(self, tag + " truncated at")]
 
         components = []  # (ast node, relationship annotation)
@@ -124,25 +128,20 @@ class Node:
             this_attr = getattr(self.ast_node, field)
             if not isinstance(this_attr, list):
                 this_attr = [this_attr]
+            if this_attr and not isinstance(this_attr[0], ast.AST):
+                logging.warning("Encountered non-AST field %s", field)
+                continue
 
             for subnode in this_attr:
+                if au.is_rich_type(self.ast_node):
+                    use_depth = 0
+                else:
+                    use_depth = max_depth - 1
                 components.extend(
-                    Node(subnode).split(tag + f" {self_type}.{field} >>", max_depth - 1)
+                    Node(subnode).split(tag + f" {self_type}.{field} >>", use_depth)
                 )
 
         return components
-
-    def body(self):
-        """Applies split() to elements of the body attribute"""
-
-        if not hasattr(self.ast_node, "body"):
-            return []
-        return [
-            component
-            for child in self.ast_node.body
-            for component in Node(child).split()
-            if component[0].ast_node is not None
-        ]
 
     def name(self):
         """many ast.AST types have a name-like field but where it is stored
@@ -152,7 +151,7 @@ class Node:
             return "Null"
         if isinstance(self.ast_node, ast.Module):
             return self.source.path
-        return au.extract_name(self.ast_node)
+        return au.extract_name(self)
 
     def infer_inheritance(self):
         """
@@ -186,38 +185,50 @@ class Node:
             return ""
         return astor.to_source(self.ast_node.bases[0]).split("\n", maxsplit=1)[0]
 
-    def get_subnode(self, key):
+    def get_subnode(self, line: int, col: int):
         """
         Inputs:
-            key (str): `line, column` using ast conventions
+            line (int): line number using ast conventions
+            col (int): column number using ast conventions
         Returns:
             ast.AST: ast_node at that line, column
         """
-        line, col = au.tuplestr_to_tuple(key)
-        for subnode, _ in self.body():
-            if subnode.ast_node.lineno == line and subnode.ast_node.col_offset == col:
-                return subnode.ast_node
+        for subnode, _ in self.split():
+            try:
+                if (
+                    subnode.ast_node.lineno == line
+                    and subnode.ast_node.col_offset == col
+                ):
+                    return subnode.ast_node
+            except AttributeError:
+                logging.warning(
+                    "Bypassing node of type %s, no location info",
+                    au.pretty_type(type(subnode.ast_node)),
+                )
         raise ValueError("(line, col) referenced invalid")
 
     def print_unattached_subnodes(self):
         out_str = ""
 
-        if self.ast_node is not None:
-            for subnode, tag in self.body():
-                try:
-                    if au.get_ast_tuplestr(subnode.ast_node) not in self.children:
-                        out_str += f"{tag} {subnode}\n"
-                except AttributeError:
-                    pass
+        if self.ast_node is None:
+            return out_str
+
+        for subnode, tag in self.split():
+            try:
+                if au.get_ast_tuplestr(subnode.ast_node) not in self.children:
+                    out_str += f"{tag} {subnode}\n"
+            except AttributeError:
+                pass
         return out_str
 
-    def attach_subnode(self, key):
-        """add subnode to the children attribute under `key`"""
-        if key in self.children:
+    def attach_subnode(self, line: int, col: int):
+        """add subnode to the children attribute at line, column"""
+
+        if f"{line},{col}" in self.children:
             raise ValueError("child already exists")
 
-        self.children[key] = Node(
-            self.get_subnode(key), source=self.source, parent=self
+        self.children[f"{line},{col}"] = Node(
+            self.get_subnode(line, col), source=self.source, parent=self
         )
 
     def attach_manual(self, name: str, node):
@@ -226,13 +237,16 @@ class Node:
         self.children[name] = node
 
     def print_children(self):
+        if not self.children:
+            return "   None"
+
         out_str = ""
         for key, value in self.children.items():
             out_str += f"{value} at key '{key}'"
 
         return out_str
 
-    def get_text(self):
+    def core_text(self):
         """Return empty string for ast.Module nodes to avoid including text not selected
         by the user. For ast.Call nodes, use jedi to search for a function defintion and
         return source text of the function defintion. For all other nodes, return the

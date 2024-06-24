@@ -8,15 +8,15 @@ setup(
     description='llm-powered script explainer',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/hollymandel/ASTound',
+    url='https://github.com/hollymandel/astound',
     packages=find_packages(),
     install_requires=[
-        'anthropic',
-        'ast',
-        'astor',
-        'json'
+#        'anthropic',
+#        'ast',
+#        'astor',
+#        'json'
     ],
-    python_requires='>=3.6',
+    python_requires='>=3.8',
     include_package_data=True,
     package_data={
         'sample': ['data/*.json'],

@@ -12,6 +12,10 @@ def display_tree(node, tag=""):
         display_tree(val, tag + ">> ")
 
 
+class NonexistantChildError(Exception):
+    pass
+
+
 class Cursor:
     """Wraps astound/Node type with utilities for building and navigating a syntax tree."""
 
@@ -37,39 +41,35 @@ class Cursor:
         )
 
     def down(self, key):
+        """navigate to child node specified by 'key'"""
         try:
-            self.current.attach_subnode(key)
-        except ValueError:
-            assert key in self.current.children
-        self.current = self.current.children[key]
+            self.current = self.current.children[key]
+        except KeyError as exc:
+            raise NonexistantChildError from exc
+
         self.depth += 1
 
-        print(self)
-
     def up(self):
+        """navigate to parent node"""
         self.current = self.current.parent
         self.depth -= 1
 
-    def link_source(self, name: str, source: Source):
-        """Attach a child node that is not part of the AST by creating a new Node
-        based on source. Essentially a wrapper for Node.attach_manual."""
-        ast_node = ast.parse(source.text)
-        self.current.attach_manual(
-            name, Node(ast_node=ast_node, source=source, parent=self.current)
-        )
-        self.depth += 1
-        self.current = self.current.children[name]
+    def attach(self, pathstr: str = None, line: int = None, col: int = None):
+        """If path is specified, attach a child node that is not part of the
+        AST by creating a new Node based on source. This behavior wraps Node.attach_manual.
 
-    def link_node(self, name: str, node: Node):
-        """Attach a child node that is not part of the AST. Unlike link_source,
-        the input here should already be a Node. Essentially a wrapper for
-        Node.attach_manual."""
-        node = node.copy()
-        node.parent = self.current
-        self.current.attach_manual(name, node)
-        self.depth += 1
-        self.current = self.current.children[name]
+        If line and col are specified, attach a child node that is an ast
+        subnode by line, column reference. This behavior wraps Node.attach_subnode."""
+        if pathstr:
+            source = Source(pathstr)
+            ast_node = ast.parse(source.text)
+            self.current.attach_manual(
+                pathstr, Node(ast_node=ast_node, source=source, parent=self.current)
+            )
+        else:
+            self.current.attach_subnode(line, col)
 
     def summarize_down(self):
         """Recursive summarization of the current node and its attached children."""
-        return summarize.summarize(self.current)
+        self.current.summary = summarize.summarize(self.current)
+        print(self.current.summary)

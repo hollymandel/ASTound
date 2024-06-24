@@ -22,24 +22,43 @@ MESSAGE_KWARGS = MappingProxyType(
 def type_header(t):
     return (
         f"Which subfields of a python ast node of type {t} contain child nodes? "
-        "Return only immediate subfields, i.e. 'subfield' is ok but 'subfield.subsubfield' is not."
+        "Omit fields that contain only strings. Strongly consider fields named 'value', 'func', or 'body'."
+        "Return only immediate subfields, i.e. 'subfield' is ok but 'subfield.subsubfield' is not. "
     )
 
 
 def validate_field(ast_node, field):
     if not hasattr(ast_node, field):
+        logging.info(
+            "Claude generated invalid field: node of type '%s' has no field '%s'",
+            type(ast_node),
+            field,
+        )
         return False
     this_attr = getattr(ast_node, field)
+
+    # ambiguous case - field could be valid but empty
     if not this_attr:
         return True
 
-    # ambiguous case - field could be valid but empty
     if isinstance(this_attr, ast.AST):
         return True
+
     if isinstance(this_attr, list):
         if isinstance(this_attr[0], ast.AST):
             return True
+        logging.info(
+            "Claude generated invalid field: field '%s :: %s' is a list of objects that are not ast nodes",
+            type(ast_node),
+            field,
+        )
         return False
+
+    logging.info(
+        "Claude generated invalid field: field '%s :: %s' is not an ast node or list of ast nodes",
+        type(ast_node),
+        field,
+    )
     return False
 
 
@@ -72,6 +91,7 @@ def parser_type_query(
         result = cursor.fetchone()
 
         if result:
+            logging.info("found in db:: %s:%s", t, result)
             return result[0]
 
         prompt = type_header(t)
@@ -82,10 +102,12 @@ def parser_type_query(
             .content[0]
             .text
         )
+        pre_list = pre_list.replace(" ", "").split(",")
 
         # remove stray characters and invalid types from list
         field_list = [field for field in pre_list if validate_field(ast_node, field)]
         field_list = ",".join(field_list)
+        logging.info("generated:: %s:%s", t, field_list)
 
         # insert into database
         cursor.execute(

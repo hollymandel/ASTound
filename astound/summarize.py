@@ -36,7 +36,7 @@ def summarize(node: Node):
     if len(node.summary) > 0:
         return node.summary
 
-    individual_prompt = PROMPTS["individual_header"] + "".join(node.get_text())
+    individual_prompt = PROMPTS["individual_header"] + "".join(node.core_text())
 
     individual_summary = (
         client.messages.create(
