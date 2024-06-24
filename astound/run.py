@@ -113,7 +113,7 @@ if __name__ == "__main__":
             print("invalid input, try again\n")
             continue
         except NonexistantChildError:
-            print("No child at given key, try a different key or select another option")
+            print("No child at given key, try a different key or select another option\n")
 
         if not stat:
             break
