@@ -14,7 +14,7 @@ WELCOME_STR = "\nWelcome to Astound! Please enter your source path to begin:\n\n
 POST_WELCOME_STR = (
     "\nThanks! Now you will build the summary tree. Here's how to navigate:\n"
 )
-SHORT_MENU_STR = "\n\n[ C: Cursor, P: Print, D: Down, U: Up, L: Link, X: summarize, S: save, M: menu, Q: quit ]\n\n"
+SHORT_MENU_STR = "\n\n[ C: Cursor, P: Print, D: Down, U: Up, L: Link, S: summarize, M: menu, Q: quit ]\n\n"
 LONG_MENU_STR = (
     " - Type 'A line,col' to link an ast subnode at (line,col) and navigate down to it\n"
     "        'A source.path' to create and link a child node based on the source in\n"
