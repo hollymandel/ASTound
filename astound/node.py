@@ -39,7 +39,7 @@ class Source:
         """Return the text of the current node with 1-start line numbers."""
         source_list = self.text.split("\n")[line_start - 1 : line_end]
         source_list = [
-            f"[{line_start + i}]   {txt}" for i, txt in enumerate(source_list)
+            f"{line_start + i:5}   {txt}" for i, txt in enumerate(source_list)
         ]
         return "\n".join(source_list)
 

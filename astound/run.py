@@ -45,10 +45,11 @@ def parse_input(cursor, instr: str):
             cursor.attach(pathstr=keystr[0])
             cursor.down(keystr[0])
         elif len(keystr) == 2:
-            cursor.attach(line=int(keystr[0]), col=int(keystr[1]))
+            try:
+                cursor.attach(line=int(keystr[0]), col=int(keystr[1]))
+            except ValueError as exc:
+                raise InvalidInput from exc
             cursor.down(f"{keystr[0]},{keystr[1]}")
-        else:
-            raise ValueError
         print(cursor)
         return True
     if prefix == "D":
@@ -68,8 +69,8 @@ def parse_input(cursor, instr: str):
             return True
 
         if post == "node":
-            line_start = cursor.current.ast_node.lineno
-            line_end = cursor.current.ast_node.end_lineno
+            line_start = getattr(cursor.current.ast_node, "lineno", 1)
+            line_end = getattr(cursor.current.ast_node, "end_lineno", 1000)
         else:
             try:
                 line_start, line_end = post.split(",")
@@ -113,7 +114,9 @@ if __name__ == "__main__":
             print("invalid input, try again\n")
             continue
         except NonexistantChildError:
-            print("No child at given key, try a different key or select another option\n")
+            print(
+                "No child at given key, try a different key or select another option\n"
+            )
 
         if not stat:
             break
