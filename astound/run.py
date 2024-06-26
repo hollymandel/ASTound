@@ -16,10 +16,11 @@ WELCOME_STR = "\nWelcome to Astound! Please enter your source path to begin:\n\n
 POST_WELCOME_STR = (
     "\nThanks! I have created a parent node based on your file and moved the cursor to this node.\n"
     "Now you can attach children, either from the AST of this file or from other files.\n\n"
-    "Here's how to navigate:\n"
+    "The menu is printed below. I recommend starting with 'C' so that you can see the AST subnodes of this node.\n\n"
 )
 SHORT_MENU_STR = "\n\n[ A: Attach, U: Up, D: Down, C: Cursor, P: Print, S: summarize, M: menu, Q: quit ]\n\n"
 LONG_MENU_STR = (
+    "Here is the menu: \n"
     " - Type 'A line,col' to link an ast subnode at (line,col) and navigate down to it\n"
     "        'A source.path' to create and link a child node based on the source in\n"
     "             filename source.path and navigate down to it\n"
@@ -150,13 +151,11 @@ def parse_input(cursor, instr: str):
 if __name__ == "__main__":
     print(WELCOME_STR)
     source_path = input("enter source path: ")
-    print(POST_WELCOME_STR)
-    print(LONG_MENU_STR)
-
     src = Source(clean_str(source_path))
     cur = Cursor(root=src)
-    print("\n\nHere's the current cursor state:\n")
-    print(cur)
+
+    print(POST_WELCOME_STR)
+    print(LONG_MENU_STR)
 
     state = True
     while True:
