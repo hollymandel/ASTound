@@ -12,10 +12,6 @@ def display_tree(node, tag=""):
         display_tree(val, tag + ">> ")
 
 
-class NonexistantChildError(Exception):
-    pass
-
-
 class Cursor:
     """Wraps astound/Node type with utilities for building and navigating a syntax tree."""
 
@@ -42,15 +38,13 @@ class Cursor:
 
     def down(self, key):
         """navigate to child node specified by 'key'"""
-        try:
-            self.current = self.current.children[key]
-        except KeyError as exc:
-            raise NonexistantChildError from exc
-
+        self.current = self.current.children[key]
         self.depth += 1
 
     def up(self):
         """navigate to parent node"""
+        if self.depth == 0:
+            return
         self.current = self.current.parent
         self.depth -= 1
 
